@@ -38,8 +38,17 @@ func isWordStart(c byte) bool {
 func isWordPart(c byte) bool { return isWordStart(c) || (c >= '0' && c <= '9') }
 func isDigit(c byte) bool    { return c >= '0' && c <= '9' }
 
+// singleCharText 单字符 token 文本：预建表，避免每个标点分配一个 1 字节字符串。
+var singleCharTable = func() [256]string {
+	var t [256]string
+	for i := 0; i < 256; i++ {
+		t[i] = string(rune(i))
+	}
+	return t
+}()
+
 func scan(src string) ([]token, error) {
-	var toks []token
+	toks := make([]token, 0, len(src)/3+8)
 	i, line := 0, 1
 	n := len(src)
 	for i < n {
@@ -145,7 +154,7 @@ func scan(src string) ([]token, error) {
 				continue
 			}
 			if strings.IndexByte(ops1, c) >= 0 {
-				toks = append(toks, token{kOp, string(c), line})
+				toks = append(toks, token{kOp, singleCharTable[c], line})
 				i++
 				continue
 			}
@@ -156,13 +165,15 @@ func scan(src string) ([]token, error) {
 }
 
 type writer struct {
-	b       strings.Builder
-	line    strings.Builder
-	indent  int
-	started bool
-	blank   bool
-	prev    string
-	prevK   kind
+	b         strings.Builder
+	line      strings.Builder
+	indent    int
+	started   bool
+	blank     bool
+	prev      string
+	prevK     kind
+	lineLen   int  // 当前行已写字节数（免 Strings.HasSuffix 复制整行）
+	lastSpace bool // 当前行尾是否已是空格
 }
 
 func (w *writer) flush() {
@@ -170,6 +181,8 @@ func (w *writer) flush() {
 	w.b.WriteByte('\n')
 	w.line.Reset()
 	w.started = false
+	w.lineLen = 0
+	w.lastSpace = false
 }
 
 func (w *writer) ensure() {
@@ -188,11 +201,16 @@ func (w *writer) ensure() {
 func (w *writer) raw(s string) {
 	w.ensure()
 	w.line.WriteString(s)
+	w.lineLen += len(s)
+	w.lastSpace = len(s) > 0 && s[len(s)-1] == ' '
 }
 
 func (w *writer) space() {
-	if w.started && !strings.HasSuffix(w.line.String(), " ") {
+	// 不调用 line.String()（会复制整行）；用「行尾是否已空格」标记判定。
+	if w.started && w.lineLen > 0 && !w.lastSpace {
 		w.line.WriteString(" ")
+		w.lineLen++
+		w.lastSpace = true
 	}
 }
 
@@ -252,6 +270,7 @@ func format(src string) (string, error) {
 		return "", err
 	}
 	var w writer
+	w.b.Grow(len(src) + len(src)/8)
 	prevLine := 0
 	lastBinary := false
 	spaceNext := false
