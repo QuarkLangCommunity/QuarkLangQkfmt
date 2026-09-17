@@ -219,6 +219,10 @@ func needSpace(p string, pk kind, cur string, ck kind) bool {
 	if cur == "(" || cur == "[" {
 		return kwSpaceBeforeParen[p]
 	}
+	// `fn f(int a) int { ... }`：形参表之后是返回类型，必须留一个空格
+	if p == ")" && (ck == kWord || ck == kNum || ck == kStr) {
+		return true
+	}
 	if ck == kComment || pk == kComment {
 		return true
 	}
